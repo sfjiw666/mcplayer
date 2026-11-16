@@ -1,0 +1,4 @@
+# 本插件无需额外 Python 依赖：
+# - 截屏使用 Playwright（AstrBot 本体已内置，用于文转图）
+# - Minecraft 客户端能力由 Node.js 端 (mineflayer) 提供，依赖在首次启动时自动 npm install
+# 如果 /mc shot 提示缺少浏览器，请在 AstrBot 环境执行：playwright install chromium

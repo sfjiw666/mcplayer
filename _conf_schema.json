@@ -1,0 +1,224 @@
+{
+  "server": {
+    "description": "Minecraft 服务器连接",
+    "type": "object",
+    "items": {
+      "host": {
+        "description": "服务器地址",
+        "type": "string",
+        "default": "127.0.0.1",
+        "hint": "例如 127.0.0.1 或 mc.example.com。发送 /mc join 时也可以临时指定。"
+      },
+      "port": {
+        "description": "服务器端口",
+        "type": "int",
+        "default": 25565
+      },
+      "username": {
+        "description": "机器人游戏 ID",
+        "type": "string",
+        "default": "AstrBot"
+      },
+      "auth": {
+        "description": "登录方式",
+        "type": "string",
+        "default": "offline",
+        "options": ["offline", "microsoft"],
+        "labels": ["离线模式", "微软正版"],
+        "hint": "离线模式适用于本地/局域网/关闭正版验证的服务器；微软正版需要可访问微软登录服务，首次登录会推送授权链接。"
+      },
+      "password": {
+        "description": "微软账号密码",
+        "type": "string",
+        "default": "",
+        "secret": true,
+        "hint": "仅 microsoft 登录方式需要，离线模式请留空。"
+      },
+      "version": {
+        "description": "游戏版本",
+        "type": "string",
+        "default": "",
+        "hint": "留空自动匹配服务器版本，例如 1.20.1。"
+      }
+    }
+  },
+  "node": {
+    "description": "Node.js 桥接端",
+    "type": "object",
+    "items": {
+      "executable": {
+        "description": "node 可执行文件路径",
+        "type": "string",
+        "default": "node",
+        "hint": "一般填 node 即可，要求 Node.js >= 16。"
+      },
+      "auto_install_deps": {
+        "description": "自动安装 Node 依赖",
+        "type": "bool",
+        "default": true,
+        "hint": "首次启动桥接端时自动在插件 node_bot 目录执行 npm install。"
+      },
+      "viewer_enabled": {
+        "description": "启用网页渲染截屏",
+        "type": "bool",
+        "default": true,
+        "hint": "启动 prismarine-viewer 网页渲染器，用于生成游戏画面截屏。关闭后仅能生成俯视地图。"
+      },
+      "viewer_port": {
+        "description": "渲染器网页端口",
+        "type": "int",
+        "default": 3000,
+        "hint": "仅监听 127.0.0.1，不会暴露到公网。"
+      },
+      "viewer_view_distance": {
+        "description": "渲染视距(区块)",
+        "type": "int",
+        "default": 6,
+        "slider": {"min": 2, "max": 12, "step": 1}
+      }
+    }
+  },
+  "camera": {
+    "description": "截屏设置",
+    "type": "object",
+    "items": {
+      "mode": {
+        "description": "视角",
+        "type": "string",
+        "default": "third_person",
+        "options": ["third_person", "first_person"],
+        "labels": ["第三人称", "第一人称"]
+      },
+      "width": {
+        "description": "截屏宽度(像素)",
+        "type": "int",
+        "default": 1280
+      },
+      "height": {
+        "description": "截屏高度(像素)",
+        "type": "int",
+        "default": 720
+      },
+      "render_wait_ms": {
+        "description": "渲染等待时长(毫秒)",
+        "type": "int",
+        "default": 8000,
+        "hint": "打开渲染网页后等待区块加载的时间，机器较慢可调大。"
+      },
+      "fallback_topdown": {
+        "description": "网页渲染失败时用俯视地图兜底",
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
+  "ai": {
+    "description": "AI 游玩设置",
+    "type": "object",
+    "items": {
+      "provider_id": {
+        "description": "游玩使用的聊天模型",
+        "type": "string",
+        "default": "",
+        "_special": "select_provider",
+        "hint": "留空使用当前会话的默认模型。建议选择支持 function-calling 且尽量便宜或本地部署的模型。"
+      },
+      "use_vision": {
+        "description": "把截屏发给模型(视觉决策)",
+        "type": "bool",
+        "default": true,
+        "hint": "需要所选模型支持图片输入；不支持时会自动退回纯文本决策。"
+      },
+      "auto_interval_seconds": {
+        "description": "自动游玩思考间隔(秒)",
+        "type": "int",
+        "default": 25,
+        "slider": {"min": 10, "max": 300, "step": 5}
+      },
+      "task_max_rounds": {
+        "description": "任务模式最大轮数",
+        "type": "int",
+        "default": 15,
+        "hint": "/mc task 的单次任务最多思考多少轮，防止烧 token。"
+      },
+      "auto_play_goal": {
+        "description": "自动游玩的长期目标",
+        "type": "text",
+        "default": "在保证安全的前提下自由探索世界，收集基础资源，建造一个小庇护所，遇到动物和风景就向群里介绍。"
+      }
+    }
+  },
+  "notify": {
+    "description": "播报与推送",
+    "type": "object",
+    "items": {
+      "push_sessions": {
+        "description": "截屏与游玩动态推送会话",
+        "type": "list",
+        "default": [],
+        "_special": "umo",
+        "hint": "群聊或私聊均可。也可以随时在任意群/私聊里发送 /mc bind 订阅。"
+      },
+      "screenshot_every_round": {
+        "description": "AI 每轮行动后截屏播报",
+        "type": "bool",
+        "default": true
+      },
+      "push_on_join": {
+        "description": "进入服务器时播报",
+        "type": "bool",
+        "default": true
+      },
+      "push_on_death": {
+        "description": "死亡时播报并截屏",
+        "type": "bool",
+        "default": true
+      },
+      "push_on_kick": {
+        "description": "被踢出/掉线时播报",
+        "type": "bool",
+        "default": true
+      },
+      "relay_player_chat": {
+        "description": "转发游戏内玩家聊天",
+        "type": "bool",
+        "default": false,
+        "hint": "把服务器里其他玩家的聊天转发到推送会话，注意可能刷屏。"
+      },
+      "max_screenshots_kept": {
+        "description": "截屏文件保留数量",
+        "type": "int",
+        "default": 30,
+        "hint": "超过数量自动删除最旧的截屏文件。"
+      }
+    }
+  },
+  "safety": {
+    "description": "权限与安全",
+    "type": "object",
+    "items": {
+      "admin_ids": {
+        "description": "额外管理员用户 ID",
+        "type": "list",
+        "default": [],
+        "_special": "sender_id",
+        "hint": "除 AstrBot 管理员外，允许使用 join/leave/auto/cmd 等敏感指令的用户。"
+      },
+      "auto_reconnect": {
+        "description": "掉线自动重连",
+        "type": "bool",
+        "default": true
+      },
+      "max_reconnects": {
+        "description": "最大连续重连次数",
+        "type": "int",
+        "default": 5
+      },
+      "command_timeout_seconds": {
+        "description": "游戏指令默认超时(秒)",
+        "type": "int",
+        "default": 90
+      }
+    }
+  }
+}
