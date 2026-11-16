@@ -1,0 +1,14 @@
+{
+  "name": "astrbot-mcplayer-node-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "mineflayer bridge for astrbot_plugin_mcplayer",
+  "main": "bot.js",
+  "dependencies": {
+    "mineflayer": "^4.20.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "minecraft-data": "^3.60.0",
+    "prismarine-viewer": "^1.28.0",
+    "vec3": "^0.1.10"
+  }
+}
