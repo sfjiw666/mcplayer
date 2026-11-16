@@ -139,6 +139,7 @@ AI 模型选择(`select_provider`)、推送会话(`umo` 多选)、额外管理�
 
 ```
 astrbot_plugin_mcplayer/
+├── logo.png           # 插件 Logo(256x256)
 ├── main.py            # 插件入口：指令/事件/推送/多平台适配
 ├── mcbridge.py        # Node 子进程管理 + JSON 行协议 RPC
 ├── mcagent.py         # AI 游玩智能体(观察-决策-行动循环) + LLM 工具
