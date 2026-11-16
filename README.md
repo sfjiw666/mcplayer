@@ -3,6 +3,8 @@
 让 AstrBot 机器人**真正进入 Minecraft 服务器游玩**：走路、挖矿、建造、打怪、合成、生存，
 游玩过程自动**截屏发到群里或私信里**，像看直播一样围观机器人玩 Minecraft。
 
+**开发商**：梦创 ｜ **QQ 交流群**：167017318（问题反馈、功能建议、交流围观均可）
+
 > 灵感与依赖：机器人客户端基于 [mineflayer](https://github.com/PrismarineJS/mineflayer)，
 > 画面渲染基于 [prismarine-viewer](https://github.com/PrismarineJS/prismarine-viewer)，
 > 感谢 PrismarineJS 社区的开源工作。
@@ -152,4 +154,4 @@ astrbot_plugin_mcplayer/
 
 ## License
 
-MIT
+MIT © 2026 梦创 · 交流群 167017318

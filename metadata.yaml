@@ -3,8 +3,8 @@ display_name: Minecraft 玩家
 desc: 让机器人真正进入 Minecraft 服务器游玩：走路、挖矿、建造、打怪，并把游戏画面截屏发到群里或私信里。
 short_desc: 机器人亲自玩 Minecraft，游玩过程自动截屏播报。
 version: v1.0.0
-author: AstrBot Plugin Contributor
-repo: https://github.com/your-name/astrbot_plugin_mcplayer
+author: sfjiw
+repo: https://github.com/sfjiw666/mcplayer
 astrbot_version: ">=4.5.7"
 support_platforms:
   - aiocqhttp
