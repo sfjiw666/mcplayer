@@ -887,6 +887,7 @@ async function doMap(args) {
     center: result.center,
     radius: result.radius,
     truncated: result.truncated,
+    loaded_ratio: result.loadedRatio,
   }
 }
 

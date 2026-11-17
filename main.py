@@ -67,7 +67,7 @@ HELP_TEXT = """🎮 Minecraft 玩家插件
 提示: 也可以直接 @机器人 用自然语言指挥(需要已进服)。"""
 
 
-@register(PLUGIN_NAME, "梦创", "让机器人玩 Minecraft 并截屏播报", "v1.2.0")
+@register(PLUGIN_NAME, "梦创", "让机器人玩 Minecraft 并截屏播报", "v1.2.1")
 class McPlayerPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -304,14 +304,17 @@ class McPlayerPlugin(Star):
             try:
                 data = await self.bridge.request(
                     "map",
-                    {"radius": 16, "scale": 8},
+                    {"radius": 16, "scale": 7, "time_budget_ms": 20000},
                     timeout=60,
                 )
-                with open(path, "wb") as f:
-                    f.write(base64.b64decode(data["png_base64"]))
-                done = True
-                last_err = None
-                self._last_shot_source = "topdown"
+                if float(data.get("loaded_ratio") or 0) < 0.03:
+                    last_err = last_err or "周围区块尚未加载完成，稍等几秒再试"
+                else:
+                    with open(path, "wb") as f:
+                        f.write(base64.b64decode(data["png_base64"]))
+                    done = True
+                    last_err = None
+                    self._last_shot_source = "topdown"
             except Exception as e:
                 last_err = last_err or f"俯视地图生成失败: {e}"
                 logger.warning(f"[{PLUGIN_NAME}] 俯视地图生成失败: {e}")
@@ -403,8 +406,10 @@ class McPlayerPlugin(Star):
             if mode == "map":
                 try:
                     data = await self.bridge.request(
-                        "map", {"radius": 16, "scale": 8}, timeout=60
+                        "map", {"radius": 16, "scale": 7, "time_budget_ms": 20000}, timeout=60
                     )
+                    if float(data.get("loaded_ratio") or 0) < 0.03:
+                        return error_response("周围区块尚未加载完成，稍等几秒再试", status_code=409)
                     path = make_screenshot_path(self.data_dir)
                     with open(path, "wb") as f:
                         f.write(base64.b64decode(data["png_base64"]))
@@ -864,7 +869,12 @@ class McPlayerPlugin(Star):
             return
         yield event.plain_result("🗺️ 正在绘制俯视图...")
         try:
-            data = await self.bridge.request("map", {"radius": 16, "scale": 8}, timeout=60)
+            data = await self.bridge.request(
+                "map", {"radius": 16, "scale": 7, "time_budget_ms": 20000}, timeout=60
+            )
+            if float(data.get("loaded_ratio") or 0) < 0.03:
+                yield event.plain_result("⏳ 周围区块尚未加载完成，稍等几秒再试（刚进服时需要几秒加载地形）")
+                return
             path = make_screenshot_path(self.data_dir)
             with open(path, "wb") as f:
                 f.write(base64.b64decode(data["png_base64"]))
