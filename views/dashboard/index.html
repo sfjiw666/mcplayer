@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MC Live</title>
+    <style>
+      :root {
+        --bg: #f5f6f8;
+        --card: #ffffff;
+        --text: #1f2329;
+        --muted: #8a919f;
+        --border: #e5e6eb;
+        --accent: #3b82f6;
+        --accent-weak: rgba(59, 130, 246, 0.12);
+        --ok: #22c55e;
+        --bad: #ef4444;
+        --warn: #f59e0b;
+        --chip: #f2f3f5;
+      }
+      [data-theme="dark"] {
+        --bg: #17181c;
+        --card: #1f2127;
+        --text: #e8e9ec;
+        --muted: #9aa0ab;
+        --border: #2e3138;
+        --accent: #5b9bff;
+        --accent-weak: rgba(91, 155, 255, 0.15);
+        --ok: #34d399;
+        --bad: #f87171;
+        --warn: #fbbf24;
+        --chip: #2a2d34;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .wrap { padding: 16px; max-width: 1200px; margin: 0 auto; }
+      header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+      header h1 { font-size: 20px; margin: 0; }
+      .badge {
+        padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+        background: var(--chip); color: var(--muted);
+      }
+      .badge.on { background: rgba(34, 197, 94, 0.15); color: var(--ok); }
+      .spacer { flex: 1; }
+      button {
+        border: 1px solid var(--border); background: var(--card); color: var(--text);
+        padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.primary:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
+      button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+      .grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 14px; }
+      @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+      .card {
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 12px; padding: 14px; margin-bottom: 14px; min-width: 0;
+      }
+      .card h2 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+      .shotbox {
+        position: relative; border-radius: 8px; overflow: hidden;
+        background: repeating-conic-gradient(var(--chip) 0 25%, transparent 0 50%) 0 0/16px 16px;
+        min-height: 200px; display: flex; align-items: center; justify-content: center;
+      }
+      .shotbox img { width: 100%; display: block; }
+      .shotbox .placeholder { color: var(--muted); padding: 40px 16px; text-align: center; }
+      .shotbox .loading {
+        position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(0, 0, 0, 0.45); color: #fff; font-size: 13px; text-align: center; padding: 12px;
+      }
+      .shotbox.busy .loading { display: flex; }
+      .toolbar { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+      .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .seg button { border: 0; border-radius: 0; padding: 6px 12px; }
+      .seg button.active { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+      label.switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+      .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; }
+      .kv .k { color: var(--muted); white-space: nowrap; }
+      .kv .v { word-break: break-all; }
+      .hp { display: inline-flex; align-items: center; gap: 4px; }
+      .bar { width: 90px; height: 8px; border-radius: 4px; background: var(--chip); overflow: hidden; }
+      .bar i { display: block; height: 100%; border-radius: 4px; }
+      .bar.hp i { background: var(--bad); }
+      .bar.food i { background: var(--warn); }
+      .ctrl { display: flex; flex-wrap: wrap; gap: 8px; }
+      ul.events { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; font-size: 13px; }
+      ul.events li { padding: 5px 8px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
+      ul.events li:last-child { border-bottom: 0; }
+      ul.events time { color: var(--muted); font-size: 12px; white-space: nowrap; font-family: ui-monospace, monospace; }
+      .tag { padding: 0 6px; border-radius: 4px; font-size: 12px; background: var(--chip); color: var(--muted); }
+      .tag.death { background: rgba(239, 68, 68, 0.15); color: var(--bad); }
+      .tag.kicked { background: rgba(245, 158, 11, 0.15); color: var(--warn); }
+      .tag.chat { background: var(--accent-weak); color: var(--accent); }
+      .toast {
+        position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
+        background: var(--text); color: var(--bg); padding: 8px 18px; border-radius: 10px;
+        font-size: 13px; opacity: 0; transition: all 0.25s; pointer-events: none; max-width: 86vw;
+      }
+      .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+      .mono { font-family: ui-monospace, Consolas, monospace; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1 id="title">游戏实况</h1>
+        <span class="badge" id="onlineBadge">…</span>
+        <span class="badge" id="agentBadge" style="display: none"></span>
+        <span class="spacer"></span>
+        <button id="btnRefresh">刷新状态</button>
+      </header>
+
+      <div class="grid">
+        <div>
+          <div class="card">
+            <h2 id="shotTitle">游戏画面</h2>
+            <div class="shotbox" id="shotbox">
+              <div class="placeholder" id="shotPlaceholder">还没有截图，点击「拍一张」试试</div>
+              <img id="shotImg" alt="game screenshot" style="display: none" />
+              <div class="loading" id="shotLoading">截屏中，视服务器与机器性能约需 10~25 秒...</div>
+            </div>
+            <div class="toolbar">
+              <div class="seg">
+                <button id="modeView" class="active">游戏画面</button>
+                <button id="modeMap">俯视地图</button>
+              </div>
+              <button class="primary" id="btnShot">拍一张</button>
+              <label class="switch">
+                <input type="checkbox" id="autoRefresh" />
+                <span>自动刷新</span>
+              </label>
+              <select id="autoInterval" class="mono" style="display: none">
+                <option value="30">30s</option>
+                <option value="60" selected>60s</option>
+                <option value="120">120s</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2 id="eventsTitle">游戏事件</h2>
+            <ul class="events" id="events">
+              <li><span class="tag">info</span><span id="noEvents">暂无事件</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <h2 id="statusTitle">机器人状态</h2>
+            <div class="kv" id="statusGrid"></div>
+          </div>
+          <div class="card">
+            <h2 id="ctrlTitle">控制台</h2>
+            <div class="ctrl">
+              <button id="btnJoin" class="primary">进入服务器</button>
+              <button id="btnLeave" class="danger">离开服务器</button>
+              <button id="btnAuto">开启自动游玩</button>
+              <button id="btnStop">停止当前动作</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script src="/api/plugin/page/bridge-sdk.js"></script>
+    <script>
+      (function () {
+        "use strict";
+        const bridge = window.AstrBotPluginView;
+        const $ = (id) => document.getElementById(id);
+        const state = {
+          mode: "view", // view | map
+          shotBusy: false,
+          autoTimer: null,
+          sseId: null,
+          lastStatus: null,
+        };
+
+        // ---------- i18n ----------
+        function t(key, fallback) {
+          return bridge ? bridge.t("views.dashboard." + key, fallback) : fallback;
+        }
+        function applyI18n() {
+          document.title = t("title", "游戏实况");
+          $("title").textContent = t("title", "游戏实况");
+          $("btnRefresh").textContent = t("refresh", "刷新状态");
+          $("shotTitle").textContent = t("gameView", "游戏画面");
+          $("modeView").textContent = t("gameView", "游戏画面");
+          $("modeMap").textContent = t("topdownMap", "俯视地图");
+          $("btnShot").textContent = t("takeShot", "拍一张");
+          $("autoRefresh").nextElementSibling.textContent = t("autoRefresh", "自动刷新");
+          $("shotPlaceholder").textContent = t("noShot", "还没有截图，点击「拍一张」试试");
+          $("shotLoading").textContent = t("loading", "截屏中...");
+          $("statusTitle").textContent = t("status", "机器人状态");
+          $("ctrlTitle").textContent = t("control", "控制台");
+          $("btnJoin").textContent = t("join", "进入服务器");
+          $("btnLeave").textContent = t("leave", "离开服务器");
+          $("btnStop").textContent = t("stop", "停止当前动作");
+          $("eventsTitle").textContent = t("events", "游戏事件");
+          $("noEvents").textContent = t("noEvents", "暂无事件");
+        }
+
+        // ---------- 小工具 ----------
+        let toastTimer = null;
+        function toast(msg) {
+          const el = $("toast");
+          el.textContent = msg;
+          el.classList.add("show");
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+        }
+        function esc(s) {
+          return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+          }[c]));
+        }
+        function fmtTime(unix) {
+          const d = new Date(unix * 1000);
+          const p = (n) => String(n).padStart(2, "0");
+          return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+        }
+        function bar(value, max, cls) {
+          const pct = Math.max(0, Math.min(100, (value / max) * 100));
+          return '<span class="hp"><span class="bar ' + cls + '"><i style="width:' + pct + '%"></i></span> ' +
+            value + "/" + max + "</span>";
+        }
+
+        // ---------- 状态渲染 ----------
+        function renderStatus(s) {
+          state.lastStatus = s;
+          const on = !!s.online;
+          const badge = $("onlineBadge");
+          badge.textContent = on ? t("online", "在线") : t("offline", "离线");
+          badge.className = "badge" + (on ? " on" : "");
+
+          const ab = $("agentBadge");
+          if (s.agent_mode) {
+            ab.style.display = "";
+            ab.textContent = "AI: " + s.agent_mode + (s.busy ? " · " + t("busy", "执行中") + " " + s.busy : "");
+          } else {
+            ab.style.display = "none";
+          }
+
+          const rows = [];
+          rows.push([t("health", "生命"), s.online ? bar(s.health ?? 0, 20, "hp") : "—"]);
+          rows.push([t("food", "饥饿"), s.online ? bar(s.food ?? 0, 20, "food") : "—"]);
+          const p = s.position;
+          rows.push([t("position", "位置"), p ? '<span class="mono">(' + p.x + ", " + p.y + ", " + p.z + ")</span>" : "—"]);
+          rows.push([t("facing", "朝向"), s.facing ? esc(s.facing) + ' (' + (s.yaw ?? "?") + '°)' : "—"]);
+          rows.push([t("dimension", "维度/群系"), s.dimension ? esc(s.dimension) + " / " + esc(s.biome || "?") : "—"]);
+          rows.push([t("time", "游戏时间"),
+            s.day ? "第 " + s.day + " 天 · " + (s.is_raining ? "🌧️ " : "") + esc(s.time_phase || "") : "—"]);
+          rows.push([t("heldItem", "手持"), s.held_item ? esc(s.held_item) : "空手"]);
+          rows.push([t("players", "在线玩家"),
+            (s.players && s.players.length)
+              ? s.players.slice(0, 8).map((x) => esc(x.username)).join(", ") + (s.players.length > 8 ? "…" : "")
+              : "—"]);
+          if (s.goal) rows.push([t("goal", "当前目标"), esc(s.goal)]);
+          $("statusGrid").innerHTML = rows
+            .map(([k, v]) => '<div class="k">' + k + '</div><div class="v">' + v + "</div>")
+            .join("");
+
+          // 控制按钮可用性
+          $("btnJoin").disabled = on;
+          $("btnLeave").disabled = !on;
+          $("btnStop").disabled = !on;
+          $("btnAuto").disabled = !on && !s.agent_mode;
+          $("btnAuto").textContent = s.agent_mode === "auto"
+            ? t("autoOff", "停止自动游玩")
+            : t("autoOn", "开启自动游玩");
+        }
+
+        async function refreshStatus() {
+          try {
+            const s = await bridge.apiGet("status");
+            renderStatus(s);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+        // ---------- 事件渲染 ----------
+        function renderEvents(list) {
+          if (!list || !list.length) return;
+          $("events").innerHTML = list
+            .slice()
+            .reverse()
+            .map(
+              (ev) =>
+                "<li><time>" + fmtTime(ev.t) + '</time><span class="tag ' + esc(ev.type) + '">' +
+                esc(ev.type) + "</span><span>" + esc(ev.text) + "</span></li>"
+            )
+            .join("");
+        }
+        async function refreshEvents() {
+          try {
+            renderEvents(await bridge.apiGet("events"));
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+        // ---------- 截屏 ----------
+        async function takeShot() {
+          if (state.shotBusy) return;
+          state.shotBusy = true;
+          $("shotbox").classList.add("busy");
+          $("btnShot").disabled = true;
+          try {
+            const data = await bridge.apiGet("screenshot", { mode: state.mode });
+            $("shotImg").src = data.image;
+            $("shotImg").style.display = "";
+            $("shotPlaceholder").style.display = "none";
+            if (data.source === "topdown" && state.mode === "view") {
+              toast(t("gameView", "游戏画面") + " " + t("shotFailed", "截屏失败") + " → " + t("topdownMap", "俯视地图"));
+            }
+          } catch (e) {
+            toast(t("shotFailed", "截屏失败") + ": " + (e && e.message ? e.message : e));
+          } finally {
+            state.shotBusy = false;
+            $("shotbox").classList.remove("busy");
+            $("btnShot").disabled = false;
+            refreshStatus();
+          }
+        }
+
+        function setMode(mode) {
+          state.mode = mode;
+          $("modeView").classList.toggle("active", mode === "view");
+          $("modeMap").classList.toggle("active", mode === "map");
+        }
+
+        // ---------- 自动刷新 ----------
+        function applyAutoRefresh() {
+          if (state.autoTimer) {
+            clearInterval(state.autoTimer);
+            state.autoTimer = null;
+          }
+          $("autoInterval").style.display = $("autoRefresh").checked ? "" : "none";
+          if ($("autoRefresh").checked) {
+            const sec = parseInt($("autoInterval").value, 10) || 60;
+            state.autoTimer = setInterval(takeShot, sec * 1000);
+          }
+        }
+
+        // ---------- 控制 ----------
+        async function control(action, confirmMsg) {
+          if (confirmMsg && !window.confirm(confirmMsg)) return;
+          try {
+            const r = await bridge.apiPost("control", { action });
+            toast((r && r.message) || "OK");
+          } catch (e) {
+            toast(((e && e.message) || String(e)).slice(0, 160));
+          }
+          setTimeout(refreshStatus, 600);
+        }
+
+        // ---------- SSE 实时状态 ----------
+        async function subscribeStream() {
+          if (!bridge.subscribeSSE) return;
+          try {
+            state.sseId = await bridge.subscribeSSE("stream", {
+              onMessage(ev) {
+                const s = ev.parsed;
+                if (s && s.type === "status" && s.data) renderStatus(s.data);
+                if (s && s.type === "event") refreshEvents();
+              },
+              onError() {
+                // SSE 断开后降级为轮询
+                setTimeout(refreshStatus, 5000);
+              },
+            });
+          } catch (e) {
+            console.warn("SSE failed, fallback to polling", e);
+            setInterval(refreshStatus, 5000);
+          }
+        }
+
+        // ---------- 初始化 ----------
+        async function init() {
+          applyI18n();
+          if (bridge && bridge.onContext) {
+            bridge.onContext(() => applyI18n());
+          }
+
+          $("btnRefresh").addEventListener("click", refreshStatus);
+          $("btnShot").addEventListener("click", takeShot);
+          $("modeView").addEventListener("click", () => setMode("view"));
+          $("modeMap").addEventListener("click", () => setMode("map"));
+          $("autoRefresh").addEventListener("change", applyAutoRefresh);
+          $("autoInterval").addEventListener("change", applyAutoRefresh);
+          $("btnJoin").addEventListener("click", () => {
+            toast(t("join", "进入服务器") + "...");
+            control("join");
+          });
+          $("btnLeave").addEventListener("click", () =>
+            control("leave", t("confirmLeave", "确定让机器人离开服务器？"))
+          );
+          $("btnAuto").addEventListener("click", () =>
+            control(state.lastStatus && state.lastStatus.agent_mode === "auto" ? "auto_off" : "auto_on")
+          );
+          $("btnStop").addEventListener("click", () => control("stop"));
+
+          await refreshStatus();
+          await refreshEvents();
+          await subscribeStream();
+        }
+
+        if (bridge && bridge.ready) {
+          bridge.ready().then(init).catch((e) => console.error(e));
+        } else {
+          document.addEventListener("DOMContentLoaded", init);
+        }
+      })();
+    </script>
+  </body>
+</html>

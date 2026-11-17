@@ -84,6 +84,15 @@ Python 无需额外依赖：截屏用的 Playwright 是 AstrBot 本体自带的�
 | `/mc attack [目标] [次数]` | 攻击附近生物 | 所有人 |
 | `/mc eat` / `respawn` | 吃东西 / 重生 | 所有人 |
 
+## WebUI 可视化视图（游戏实况页）
+
+在 WebUI 的 **插件 → astrbot_plugin_mcplayer 详情页** 里有专属视图 **「游戏实况」**：
+
+- **画面区**：游戏截图（游戏画面 / 俯视地图切换），支持手动拍摄与 30/60/120s 自动刷新
+- **状态区**：在线状态、血量/饥饿条、位置、朝向、维度/群系、游戏时间、手持、在线玩家，SSE 每 3 秒实时刷新
+- **控制台**：进入/离开服务器、自动游玩开关、停止当前动作
+- **游戏事件流**：聊天、死亡、被踢、重连等事件实时滚动
+
 ## 截屏发到群里或私信里
 
 三种方式：
@@ -148,11 +157,13 @@ AI 模型选择(`select_provider`)、推送会话(`umo` 多选)、额外管理�
 ```
 astrbot_plugin_mcplayer/
 ├── logo.png           # 插件 Logo(256x256)
-├── main.py            # 插件入口：指令/事件/推送/多平台适配
+├── main.py            # 插件入口：指令/事件/推送/多平台适配/WebUI API
 ├── mcbridge.py        # Node 子进程管理 + JSON 行协议 RPC
 ├── mcagent.py         # AI 游玩智能体(观察-决策-行动循环) + LLM 工具
-├── mcrender.py        # Playwright 游戏截屏
+├── mcrender.py        # 游戏截屏(Playwright → 系统浏览器 CLI → 俯视地图)
 ├── _conf_schema.json  # WebUI 配置
+├── views/dashboard/   # WebUI 可视化视图「游戏实况」
+├── .astrbot-plugin/i18n/  # 视图元数据与双语文案
 └── node_bot/          # Node 桥接端(mineflayer)
     ├── bot.js         # 游戏客户端与动作实现
     └── lib/           # 纯JS PNG编码器 + 俯视地图渲染

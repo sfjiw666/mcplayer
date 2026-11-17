@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import base64
 import os
 import sys
@@ -19,6 +20,7 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import MessageChain, filter
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.star import Context, Star, register
+from astrbot.api.web import error_response, json_response, request, stream_response
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 # 让本目录下的辅助模块可以被导入（兼容 AstrBot 的多种插件加载方式）
@@ -65,7 +67,7 @@ HELP_TEXT = """🎮 Minecraft 玩家插件
 提示: 也可以直接 @机器人 用自然语言指挥(需要已进服)。"""
 
 
-@register(PLUGIN_NAME, "AstrBot Plugin Contributor", "让机器人玩 Minecraft 并截屏播报", "v1.0.0")
+@register(PLUGIN_NAME, "梦创", "让机器人玩 Minecraft 并截屏播报", "v1.1.0")
 class McPlayerPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -107,6 +109,16 @@ class McPlayerPlugin(Star):
         self._chat_flush_lock = asyncio.Lock()
         self._tools = []
 
+        # WebUI 可视化视图状态
+        import time as _time_mod
+
+        self._time_mod = _time_mod
+        self._web_events: list[dict] = []  # 游戏事件环形缓冲(给视图页)
+        self._event_seq = 0  # 事件序号，SSE 据此通知前端拉取
+        self._shot_lock = asyncio.Lock()  # 截屏并发保护(视图页与聊天指令互斥)
+        self._last_shot_source: str | None = None  # 最近一次截屏来源: viewer|topdown
+        self._terminated = False
+
     # ================= 生命周期 =================
 
     async def initialize(self):
@@ -120,8 +132,28 @@ class McPlayerPlugin(Star):
         except Exception as e:
             self._tools = []
             logger.warning(f"[{PLUGIN_NAME}] LLM 工具注册失败(指令不受影响): {e}")
+        self._register_web_apis()
+
+    def _register_web_apis(self):
+        """注册 WebUI 可视化视图的后端 API(路由须以插件名为前缀)。"""
+        try:
+            routes = [
+                ("/status", self.web_status, ["GET"], "Bot status for dashboard view"),
+                ("/screenshot", self.web_screenshot, ["GET"], "Take a game screenshot"),
+                ("/events", self.web_events, ["GET"], "Recent game events"),
+                ("/control", self.web_control, ["POST"], "Dashboard control actions"),
+                ("/stream", self.web_stream, ["GET"], "SSE status stream"),
+            ]
+            for route, handler, methods, desc in routes:
+                self.context.register_web_api(
+                    f"/{PLUGIN_NAME}{route}", handler, methods, desc
+                )
+            logger.info(f"[{PLUGIN_NAME}] 已注册 {len(routes)} 个可视化视图 API")
+        except Exception as e:
+            logger.error(f"[{PLUGIN_NAME}] 可视化视图 API 注册失败: {e}")
 
     async def terminate(self):
+        self._terminated = True
         try:
             if self.agent.running_mode:
                 await self.agent.stop_auto()
@@ -259,6 +291,7 @@ class McPlayerPlugin(Star):
             try:
                 await self.captor.screenshot_viewer(url, path)
                 done = True
+                self._last_shot_source = "viewer"
             except RenderError as e:
                 last_err = f"网页渲染失败: {e}"
                 logger.warning(f"[{PLUGIN_NAME}] 网页渲染截屏失败: {e}")
@@ -277,6 +310,7 @@ class McPlayerPlugin(Star):
                     f.write(base64.b64decode(data["png_base64"]))
                 done = True
                 last_err = None
+                self._last_shot_source = "topdown"
             except Exception as e:
                 last_err = last_err or f"俯视地图生成失败: {e}"
                 logger.warning(f"[{PLUGIN_NAME}] 俯视地图生成失败: {e}")
@@ -293,6 +327,209 @@ class McPlayerPlugin(Star):
             await self.push_image(path, caption or "📸 游戏截图")
         return path, None
 
+    # ================= WebUI 可视化视图 API =================
+
+    def _record_event(self, etype: str, text: str):
+        """游戏事件进入环形缓冲，供视图页展示与 SSE 通知。"""
+        self._web_events.append(
+            {"t": int(self._time_mod.time()), "type": etype, "text": str(text)[:200]}
+        )
+        if len(self._web_events) > 60:
+            del self._web_events[: len(self._web_events) - 60]
+        self._event_seq += 1
+
+    async def web_status(self):
+        """GET /status — 机器人实时状态(视图页与 SSE 共用)。"""
+        data = {
+            "online": self.bridge_online(),
+            "agent_mode": self.agent.running_mode,
+            "goal": self._task_goal or (self._cfg("ai").get("auto_play_goal") or ""),
+            "busy": None,
+            "username": None,
+            "position": None,
+            "health": None,
+            "food": None,
+            "dimension": None,
+            "biome": None,
+            "facing": None,
+            "yaw": None,
+            "held_item": None,
+            "day": None,
+            "time_phase": "",
+            "is_raining": False,
+            "players": [],
+            "viewer_port": self._cfg("node").get("viewer_port") or 3000,
+        }
+        if not data["online"]:
+            return json_response(data)
+        try:
+            st = await self.bridge.request("status", timeout=20)
+        except Exception as e:
+            return json_response({**data, "error": str(e)})
+        tod = st.get("time_of_day")
+        phase = ""
+        if isinstance(tod, int):
+            phase = "白天" if 0 <= tod % 24000 < 12500 else "夜晚"
+        data.update(
+            {
+                "username": st.get("username"),
+                "position": st.get("position"),
+                "health": st.get("health"),
+                "food": st.get("food"),
+                "dimension": st.get("dimension"),
+                "biome": st.get("biome"),
+                "facing": st.get("facing"),
+                "yaw": st.get("yaw"),
+                "held_item": st.get("held_item"),
+                "day": st.get("day"),
+                "time_phase": phase,
+                "is_raining": bool(st.get("is_raining")),
+                "players": st.get("players_online") or [],
+                "busy": st.get("busy"),
+            }
+        )
+        return json_response(data)
+
+    async def web_screenshot(self):
+        """GET /screenshot?mode=view|map — 截一张图返回 dataURI。"""
+        mode = (request.query.get("mode") or "view").lower()
+        if not self.bridge_online():
+            return error_response("机器人未连接服务器", status_code=409)
+        if self._shot_lock.locked():
+            return error_response("正在截屏中，请稍候", status_code=409)
+        async with self._shot_lock:
+            path = None
+            if mode == "map":
+                try:
+                    data = await self.bridge.request(
+                        "map", {"radius": 16, "scale": 8}, timeout=60
+                    )
+                    path = make_screenshot_path(self.data_dir)
+                    with open(path, "wb") as f:
+                        f.write(base64.b64decode(data["png_base64"]))
+                    self._last_shot_source = "topdown"
+                except Exception as e:
+                    return error_response(f"俯视地图生成失败: {e}", status_code=500)
+            else:
+                path, err = await self.take_game_screenshot()
+                if not path:
+                    return error_response(err or "截屏失败", status_code=500)
+            try:
+                with open(path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("ascii")
+            except OSError as e:
+                return error_response(f"读取截屏文件失败: {e}", status_code=500)
+            return json_response(
+                {
+                    "image": f"data:image/png;base64,{b64}",
+                    "mode": mode,
+                    "source": self._last_shot_source or ("topdown" if mode == "map" else "viewer"),
+                    "took_at": int(self._time_mod.time()),
+                }
+            )
+
+    async def web_events(self):
+        """GET /events — 最近的游戏事件。"""
+        return json_response({"events": self._web_events, "seq": self._event_seq})
+
+    async def web_control(self):
+        """POST /control {action} — 视图页控制台。"""
+        payload = await request.json(default={})
+        action = str(payload.get("action") or "")
+        try:
+            if action == "join":
+                if self.bridge_online():
+                    return json_response({"message": "机器人已在线"})
+                args = self._build_connect_args()
+                await self.bridge.start()
+                data = await self.bridge.request("connect", args, timeout=90)
+                self._connect_args = args
+                self._reconnects = 0
+                self._record_event("info", f"进入服务器 {args['host']}:{args['port']} (网页)")
+                return json_response({"message": f"已进入服务器! ID: {data.get('username')}"})
+            if action == "leave":
+                if self.agent.running_mode:
+                    await self.agent.stop_auto()
+                await self.bridge.request("disconnect", timeout=30)
+                self._mc_online = False
+                self._record_event("info", "离开服务器 (网页)")
+                return json_response({"message": "已离开服务器"})
+            if action == "auto_on":
+                if not self.bridge_online():
+                    return error_response("机器人未在线", status_code=409)
+                if self.agent.running_mode:
+                    return json_response({"message": f"已在运行: {self.agent.running_mode}"})
+                self.agent.start_auto()
+                return json_response({"message": "自动游玩已开启"})
+            if action == "auto_off":
+                if self.agent.running_mode != "auto":
+                    return json_response({"message": "自动游玩未开启"})
+                await self.agent.stop_auto()
+                return json_response({"message": "自动游玩已关闭"})
+            if action == "stop":
+                await self.bridge.request("stop", timeout=15)
+                return json_response({"message": "已停止当前动作"})
+            return error_response(f"未知操作: {action}", status_code=400)
+        except BridgeError as e:
+            return error_response(str(e), status_code=500)
+        except Exception as e:
+            logger.error(f"[{PLUGIN_NAME}] web control {action} 失败: {e}")
+            return error_response(str(e), status_code=500)
+
+    async def web_stream(self):
+        """GET /stream — SSE：每 3s 推送状态；有新事件时追加通知。"""
+
+        async def gen():
+            last_seq = self._event_seq
+            while not self._terminated:
+                try:
+                    payload = {"type": "status", "data": await self._snapshot_status()}
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    if self._event_seq != last_seq:
+                        last_seq = self._event_seq
+                        yield f"data: {json.dumps({'type': 'event'}, ensure_ascii=False)}\n\n"
+                except Exception as e:
+                    logger.error(f"[{PLUGIN_NAME}] SSE 状态推送失败: {e}")
+                await asyncio.sleep(3)
+
+        return stream_response(gen())
+
+    async def _snapshot_status(self) -> dict:
+        """web_status 的数据部分(SSE 复用)，不构造 HTTP 响应。"""
+        data = {
+            "online": self.bridge_online(),
+            "agent_mode": self.agent.running_mode,
+            "busy": None,
+        }
+        if not data["online"]:
+            return data
+        try:
+            st = await self.bridge.request("status", timeout=10)
+            data.update(
+                {
+                    "username": st.get("username"),
+                    "position": st.get("position"),
+                    "health": st.get("health"),
+                    "food": st.get("food"),
+                    "dimension": st.get("dimension"),
+                    "biome": st.get("biome"),
+                    "facing": st.get("facing"),
+                    "yaw": st.get("yaw"),
+                    "held_item": st.get("held_item"),
+                    "day": st.get("day"),
+                    "time_phase": "",
+                    "is_raining": bool(st.get("is_raining")),
+                    "players": st.get("players_online") or [],
+                    "busy": st.get("busy"),
+                }
+            )
+            tod = st.get("time_of_day")
+            if isinstance(tod, int):
+                data["time_phase"] = "白天" if 0 <= tod % 24000 < 12500 else "夜晚"
+        except Exception:
+            pass
+        return data
+
     # ================= 桥接事件处理 =================
 
     async def _on_bridge_event(self, name: str, data: dict):
@@ -301,25 +538,39 @@ class McPlayerPlugin(Star):
             if name == "login":
                 self._mc_online = True
                 self._reconnects = 0
+                self._record_event("info", f"已登录为 {data.get('username')}")
             elif name == "spawn":
                 self._mc_online = True
+                pos = data.get("position") or {}
+                self._record_event("info", f"进入世界 {pos.get('x')},{pos.get('y')},{pos.get('z')}")
+                if self._cfg("notify").get("push_on_join", True):
+                    await self.push_text(f"🎮 已进入服务器！位置 {pos.get('x')},{pos.get('y')},{pos.get('z')}")
                 if self._reconnecting:
                     self._reconnecting = False
                     await self.push_text(f"✅ 已重新进入服务器！{data.get('position') or ''}")
-            elif name == "chat" and self._cfg("notify").get("relay_player_chat"):
-                self._queue_chat_relay(f"[MC] {data.get('username')}: {data.get('message')}")
-            elif name == "death" and self._cfg("notify").get("push_on_death", True):
-                asyncio.create_task(self._handle_death())
-            elif name == "kicked" and self._cfg("notify").get("push_on_kick", True):
+            elif name == "chat":
+                self._record_event("chat", f"{data.get('username')}: {data.get('message')}")
+                if self._cfg("notify").get("relay_player_chat"):
+                    self._queue_chat_relay(f"[MC] {data.get('username')}: {data.get('message')}")
+            elif name == "death":
+                self._record_event("death", "机器人死亡")
+                if self._cfg("notify").get("push_on_death", True):
+                    asyncio.create_task(self._handle_death())
+            elif name == "kicked":
+                self._record_event("kicked", f"被踢出: {data.get('reason')}")
                 self._mc_online = False
-                await self.push_text(f"😢 被踢出服务器: {data.get('reason')}")
+                if self._cfg("notify").get("push_on_kick", True):
+                    await self.push_text(f"😢 被踢出服务器: {data.get('reason')}")
             elif name == "end":
+                self._record_event("info", f"连接结束: {data.get('reason') or '未知'}")
                 self._mc_online = False
                 asyncio.create_task(self._handle_disconnect(str(data.get("reason") or "")))
             elif name == "login_url":
+                self._record_event("info", "等待微软正版授权...")
                 await self.push_text(f"🔐 微软正版授权：请在浏览器打开以下链接完成登录(10分钟内有效):\n{data.get('url')}")
             elif name == "viewer":
                 if not data.get("enabled"):
+                    self._record_event("info", "网页渲染器未启用(截屏将用俯视地图)")
                     logger.warning(f"[{PLUGIN_NAME}] 网页渲染器未启用: {data.get('error')}")
         except Exception as e:
             logger.error(f"[{PLUGIN_NAME}] 处理桥接事件 {name} 失败: {e}")
@@ -404,28 +655,14 @@ class McPlayerPlugin(Star):
 
     # ---- 连接管理 ----
 
-    @mc.command("join")
-    async def mc_join(self, event: AstrMessageEvent):
-        """进入 Minecraft 服务器(管理员)。用法: /mc join [地址] [端口] [游戏ID]"""
-        self.last_session_umo = event.unified_msg_origin
-        self._sync_runtime()
-        if not self._is_admin(event):
-            yield event.plain_result("⛔ 该指令仅管理员可用")
-            return
+    def _build_connect_args(self, host: str | None = None, port: int | None = None,
+                            username: str | None = None) -> dict:
+        """按配置(可带临时覆盖)构造 Node 端连接参数。"""
         srv = self._cfg("server")
-        tokens = self._tokens(event, "join")
-        host = tokens[0] if len(tokens) >= 1 else (srv.get("host") or "127.0.0.1")
-        try:
-            port = int(tokens[1]) if len(tokens) >= 2 else int(srv.get("port") or 25565)
-        except ValueError:
-            yield event.plain_result("端口必须是数字")
-            return
-        username = tokens[2] if len(tokens) >= 3 else (srv.get("username") or "AstrBot")
-
-        connect_args = {
-            "host": host,
-            "port": port,
-            "username": username,
+        return {
+            "host": host or (srv.get("host") or "127.0.0.1"),
+            "port": int(port or int(srv.get("port") or 25565)),
+            "username": username or (srv.get("username") or "AstrBot"),
             "auth": srv.get("auth") or "offline",
             "password": srv.get("password") or "",
             "version": srv.get("version") or "",
@@ -437,12 +674,33 @@ class McPlayerPlugin(Star):
             },
         }
 
+    @mc.command("join")
+    async def mc_join(self, event: AstrMessageEvent):
+        """进入 Minecraft 服务器(管理员)。用法: /mc join [地址] [端口] [游戏ID]"""
+        self.last_session_umo = event.unified_msg_origin
+        self._sync_runtime()
+        if not self._is_admin(event):
+            yield event.plain_result("⛔ 该指令仅管理员可用")
+            return
+        tokens = self._tokens(event, "join")
+        host = tokens[0] if len(tokens) >= 1 else None
+        try:
+            port = int(tokens[1]) if len(tokens) >= 2 else None
+        except ValueError:
+            yield event.plain_result("端口必须是数字")
+            return
+        username = tokens[2] if len(tokens) >= 3 else None
+        connect_args = self._build_connect_args(host, port, username)
+
         if self.bridge_online():
             yield event.plain_result("机器人已在线，请先 /mc leave")
             return
 
         self._runtime_push.add(event.unified_msg_origin)
-        yield event.plain_result(f"🚧 正在进入 {host}:{port} (ID: {username})... 首次运行需要安装依赖，请耐心等待")
+        yield event.plain_result(
+            f"🚧 正在进入 {connect_args['host']}:{connect_args['port']} (ID: {connect_args['username']})..."
+            " 首次运行需要安装依赖，请耐心等待"
+        )
         try:
             await self.bridge.start()
             data = await self.bridge.request("connect", connect_args, timeout=75)
