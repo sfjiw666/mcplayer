@@ -97,6 +97,32 @@
       .tag.death { background: rgba(239, 68, 68, 0.15); color: var(--bad); }
       .tag.kicked { background: rgba(245, 158, 11, 0.15); color: var(--warn); }
       .tag.chat { background: var(--accent-weak); color: var(--accent); }
+      /* ---- 背包(Minecraft 风格槽位) ---- */
+      .inv-box { background: #c6c6c6; border: 3px solid; border-color: #fff #555 #555 #fff; border-radius: 4px; padding: 8px; }
+      [data-theme="dark"] .inv-box { background: #2b2b2b; border-color: #5a5a5a #161616 #161616 #5a5a5a; }
+      .inv-row { display: flex; gap: 4px; margin-bottom: 4px; }
+      .inv-row:last-child { margin-bottom: 0; }
+      .inv-row.label-row { justify-content: space-between; align-items: center; margin: 6px 0 4px; }
+      .inv-row .row-label { font-size: 12px; color: #3f3f3f; font-weight: 600; }
+      [data-theme="dark"] .inv-row .row-label { color: #bdbdbd; }
+      .slot {
+        width: 40px; height: 40px; flex: 0 0 40px; position: relative;
+        background: #8b8b8b; border: 2px solid; border-color: #373737 #fff #fff #373737;
+        display: flex; align-items: center; justify-content: center; font-size: 20px;
+      }
+      [data-theme="dark"] .slot { background: #1f1f1f; border-color: #101010 #4a4a4a #4a4a4a #101010; }
+      .slot.hot { outline: 2px solid rgba(255, 255, 255, 0.65); outline-offset: -2px; }
+      .slot .cnt {
+        position: absolute; right: 1px; bottom: 0; font-size: 11px; font-weight: 700;
+        color: #fff; text-shadow: 1px 1px 0 #3f3f3f; font-family: ui-monospace, monospace;
+      }
+      .slot .dur {
+        position: absolute; left: 3px; right: 3px; bottom: 3px; height: 3px; border-radius: 1px;
+        background: rgba(0, 0, 0, 0.35); overflow: hidden;
+      }
+      .slot .dur i { display: block; height: 100%; background: #4caf50; }
+      .inv-empty { color: var(--muted); font-size: 13px; padding: 18px 4px; text-align: center; }
+      .inv-agg { font-size: 12px; color: var(--muted); margin-top: 6px; word-break: break-all; }
       .toast {
         position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
         background: var(--text); color: var(--bg); padding: 8px 18px; border-radius: 10px;
@@ -157,6 +183,10 @@
             <div class="kv" id="statusGrid"></div>
           </div>
           <div class="card">
+            <h2 id="invTitle">背包</h2>
+            <div id="invBox"></div>
+          </div>
+          <div class="card">
             <h2 id="ctrlTitle">控制台</h2>
             <div class="ctrl">
               <button id="btnJoin" class="primary">进入服务器</button>
@@ -182,6 +212,7 @@
           autoTimer: null,
           sseId: null,
           lastStatus: null,
+          lastInvAt: 0,
         };
 
         // ---------- i18n ----------
@@ -201,6 +232,7 @@
           $("shotLoading").textContent = t("loading", "截屏中...");
           $("statusTitle").textContent = t("status", "机器人状态");
           $("ctrlTitle").textContent = t("control", "控制台");
+          $("invTitle").textContent = t("inventory", "背包");
           $("btnJoin").textContent = t("join", "进入服务器");
           $("btnLeave").textContent = t("leave", "离开服务器");
           $("btnStop").textContent = t("stop", "停止当前动作");
@@ -276,12 +308,104 @@
           $("btnAuto").textContent = s.agent_mode === "auto"
             ? t("autoOff", "停止自动游玩")
             : t("autoOn", "开启自动游玩");
+
+          // 在线时节流刷新背包(跟随状态流，最多 6s 一次)
+          if (on) {
+            const now = Date.now();
+            if (!state.lastInvAt || now - state.lastInvAt > 6000) {
+              state.lastInvAt = now;
+              refreshInventory();
+            }
+          }
         }
 
         async function refreshStatus() {
           try {
             const s = await bridge.apiGet("status");
             renderStatus(s);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
+        // ---------- 背包渲染 ----------
+        function itemEmoji(name) {
+          const n = String(name || "");
+          if (n.includes("sword")) return "⚔️";
+          if (n.includes("pickaxe")) return "⛏️";
+          if (n.includes("axe")) return "🪓";
+          if (n.includes("shovel")) return "🥄";
+          if (n.includes("hoe")) return "🌾";
+          if (n.includes("bow") || n.includes("arrow")) return "🏹";
+          if (n.includes("crossbow")) return "🏹";
+          if (/helmet|chestplate|leggings|boots|shield/.test(n)) return "🛡️";
+          if (/apple|bread|cooked_|porkchop|beef|chicken|mutton|carrot|potato|beetroot|melon|cookie|berry|cod|salmon|rabbit|stew|soup|cake|honey/.test(n)) return "🍗";
+          if (/log|planks|wood|stick|fence|door|barrel|bookshelf|crafting_table|chest\b|bamboo/.test(n)) return "🪵";
+          if (/ore|ingot|diamond|emerald|nugget|coal|redstone|lapis|quartz|amethyst/.test(n)) return "💎";
+          if (/stone|cobble|dirt|grass_block|sand|gravel|deepslate|netherrack|glass|brick|end_stone|obsidian|concrete|terracotta|clay|mud|podzol/.test(n)) return "🧱";
+          if (/torch|lantern|lamp|glowstone|sea_lantern|campfire/.test(n)) return "🏮";
+          if (/bucket|bottle|milk|honey_bottle|potion/.test(n)) return "🪣";
+          if (/seeds|wheat|sugar_cane|egg|feather|leather|bone|string|gunpowder|rotten|slime|spider|flint|paper|book|ink|blaze_rod|ender_pearl|ghast/.test(n)) return "🧪";
+          if (/flower|tulip|orchid|daisy|poppy|sapling|wither_rose|lily|peony/.test(n)) return "🌸";
+          if (/wool|carpet|banner/.test(n)) return "🧶";
+          if (/rail|minecart|hopper|detector|observer|piston|redstone_torch|repeater|comparator|dispenser|dropper/.test(n)) return "⚙️";
+          if (/bed/.test(n)) return "🛏️";
+          if (/boat|saddle/.test(n)) return "🚣";
+          if (/fishing|spyglass|compass|clock|map|shears|flint_and_steel|name_tag|lead/.test(n)) return "🧭";
+          if (/totem|golden_apple|enchanted|experience|nether_star|elytra|trident/.test(n)) return "✨";
+          if (/snowball|ender|egg\b|firework|rocket/.test(n)) return "🎯";
+          return "📦";
+        }
+
+        function renderInventory(inv) {
+          const box = $("invBox");
+          if (!inv || !inv.online) {
+            box.innerHTML = '<div class="inv-empty">' + t("invOffline", "机器人未连接服务器") + "</div>";
+            return;
+          }
+          const slots = inv.slots || [];
+          if (!slots.length) {
+            box.innerHTML = '<div class="inv-empty">' + t("invEmpty", "背包空空如也") + "</div>";
+            return;
+          }
+          const bySlot = {};
+          for (const s of slots) if (s && s.slot !== undefined) bySlot[s.slot] = s;
+
+          const slotHtml = (idx, hot) => {
+            const s = bySlot[idx];
+            if (!s || !s.name) return '<div class="slot' + (hot ? " hot" : "") + '"></div>';
+            const cnt = s.count > 1 ? '<span class="cnt">' + s.count + "</span>" : "";
+            return (
+              '<div class="slot' + (hot ? " hot" : "") + '" title="' + esc(s.displayName || s.name) + '">' +
+              '<span>' + itemEmoji(s.name) + "</span>" + cnt + "</div>"
+            );
+          };
+          const row = (idxList, hot) =>
+            '<div class="inv-row">' + idxList.map((i) => slotHtml(i, hot)).join("") + "</div>";
+
+          let html = "";
+          // 盔甲(36-39) + 副手(40)
+          const gear = [36, 37, 38, 39, 40].map((i) => slotHtml(i)).join("");
+          html += '<div class="inv-row label-row"><span class="row-label">' + t("invArmor", "盔甲/副手") + "</span></div>";
+          html += '<div class="inv-row">' + gear + "</div>";
+          // 主背包 9-35 (3 行 9 列)
+          html += '<div class="inv-row label-row"><span class="row-label">' + t("invMain", "背包") + "</span></div>";
+          for (let r = 0; r < 3; r++) {
+            html += row(Array.from({ length: 9 }, (_, c) => 9 + r * 9 + c));
+          }
+          // 快捷栏 0-8
+          html += '<div class="inv-row label-row"><span class="row-label">' + t("invHotbar", "快捷栏") + "</span>" + (inv.held ? "<span>" + t("heldItem", "手持") + ": " + esc(inv.held.displayName || inv.held.name) + "</span>" : "") + "</div>";
+          html += row([0, 1, 2, 3, 4, 5, 6, 7, 8], true);
+
+          // 聚合摘要
+          const agg = (inv.items || []).slice(0, 14).map((i) => esc(i.displayName || i.name) + "×" + i.count).join("、");
+          html += '<div class="inv-agg">' + t("invTotal", "共") + " " + (inv.total || 0) + " 件: " + (agg || "—") + "</div>";
+          box.innerHTML = html;
+        }
+
+        async function refreshInventory() {
+          try {
+            renderInventory(await bridge.apiGet("inventory"));
           } catch (e) {
             console.error(e);
           }
@@ -411,6 +535,7 @@
 
           await refreshStatus();
           await refreshEvents();
+          await refreshInventory();
           await subscribeStream();
         }
 

@@ -67,7 +67,7 @@ HELP_TEXT = """🎮 Minecraft 玩家插件
 提示: 也可以直接 @机器人 用自然语言指挥(需要已进服)。"""
 
 
-@register(PLUGIN_NAME, "梦创", "让机器人玩 Minecraft 并截屏播报", "v1.1.0")
+@register(PLUGIN_NAME, "梦创", "让机器人玩 Minecraft 并截屏播报", "v1.2.0")
 class McPlayerPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -139,6 +139,7 @@ class McPlayerPlugin(Star):
         try:
             routes = [
                 ("/status", self.web_status, ["GET"], "Bot status for dashboard view"),
+                ("/inventory", self.web_inventory, ["GET"], "Bot inventory slots"),
                 ("/screenshot", self.web_screenshot, ["GET"], "Take a game screenshot"),
                 ("/events", self.web_events, ["GET"], "Recent game events"),
                 ("/control", self.web_control, ["POST"], "Dashboard control actions"),
@@ -427,6 +428,23 @@ class McPlayerPlugin(Star):
                     "took_at": int(self._time_mod.time()),
                 }
             )
+
+    async def web_inventory(self):
+        """GET /inventory — 背包槽位数据(视图页背包卡片)。"""
+        empty = {"online": False, "slots": [], "items": [], "held": None, "total": 0}
+        if not self.bridge_online():
+            return json_response(empty)
+        try:
+            data = await self.bridge.request("inventory", timeout=15)
+        except Exception as e:
+            return json_response({**empty, "online": True, "error": str(e)})
+        return json_response({
+            "online": True,
+            "slots": data.get("slots") or [],
+            "items": data.get("items") or [],
+            "held": data.get("held"),
+            "total": data.get("total") or 0,
+        })
 
     async def web_events(self):
         """GET /events — 最近的游戏事件。"""

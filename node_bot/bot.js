@@ -31,6 +31,41 @@ function emit(event, data) {
 // mineflayer 内部偶尔会 console.log（比如微软登录链接），重定向到 stderr，避免污染协议通道
 console.log = (...a) => console.error('[bot]', ...a)
 
+// ---- viewer 版本兼容补丁(幂等) ----
+// prismarine-viewer 浏览器端遇到不支持的游戏版本会放弃渲染(截图变成纯天空色)。
+// 这里给其 Node 端 lib/mineflayer.js 打补丁：向浏览器下发版本前先做就近映射。
+// npm install 会还原该文件，因此每次启动都重新检查打补丁。
+function patchViewerVersionCompat () {
+  const fs = require('fs')
+  const path = require('path')
+  const file = path.join(__dirname, 'node_modules', 'prismarine-viewer', 'lib', 'mineflayer.js')
+  let src
+  try {
+    src = fs.readFileSync(file, 'utf8')
+  } catch (e) {
+    console.error('[patch] 未找到 prismarine-viewer，跳过补丁')
+    return
+  }
+  const needle = "socket.emit('version', bot.version)"
+  const mark = 'mcplayer-patch'
+  if (src.includes(mark)) return // 已打过
+  if (!src.includes(needle)) {
+    console.error('[patch] viewer 注入点未找到(上游可能更新)，跳过补丁；新版本服务器截图可能显示为纯色')
+    return
+  }
+  const patched = src.replace(
+    needle,
+    `socket.emit('version', require('../../../lib/viewerCompat').mapVersion(bot.version)) /* ${mark} */`
+  )
+  try {
+    fs.writeFileSync(file, patched)
+    console.error('[patch] viewer 版本兼容补丁已应用')
+  } catch (e) {
+    console.error('[patch] 写入失败:', e.message)
+  }
+}
+patchViewerVersionCompat()
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ---- 全局状态 ----
@@ -339,13 +374,30 @@ function doObserve(args = {}) {
 function doInventory() {
   if (!isOnline()) throw new Error('机器人未连接服务器')
   const items = {}
-  for (const item of bot.inventory.items()) {
-    const key = item.name
-    if (!items[key]) items[key] = { name: item.name, displayName: item.displayName ?? item.name, count: 0 }
-    items[key].count += item.count ?? 1
+  const slots = []
+  // 槽位布局(Java版): 0-8 快捷栏, 9-35 主背包, 36-39 盔甲, 40 副手
+  const slotsArr = bot.inventory.slots || []
+  for (let i = 0; i < slotsArr.length; i++) {
+    const it = slotsArr[i]
+    if (it && it.name) {
+      const displayName = it.displayName ?? it.name
+      slots.push({ slot: i, name: it.name, displayName, count: it.count ?? 1 })
+      if (!items[it.name]) items[it.name] = { name: it.name, displayName, count: 0 }
+      items[it.name].count += it.count ?? 1
+    } else {
+      slots.push({ slot: i, name: null })
+    }
   }
   const list = Object.values(items).sort((a, b) => b.count - a.count)
-  return { items: list, total: list.reduce((s, i) => s + i.count, 0) }
+  const held = bot.heldItem ?? bot.entity?.heldItem ?? null
+  return {
+    items: list,
+    total: list.reduce((s, i) => s + i.count, 0),
+    slots,
+    held: held && held.name
+      ? { name: held.name, displayName: held.displayName ?? held.name, count: held.count ?? 1 }
+      : null,
+  }
 }
 
 function doPlayers() {
