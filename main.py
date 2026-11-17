@@ -47,6 +47,7 @@ HELP_TEXT = """🎮 Minecraft 玩家插件
 —— 观赏 ——
 /mc shot                      游戏画面截屏
 /mc map                       周围地形俯视图
+/mc versions                  查看支持的游戏版本
 /mc auto on|off               自动游玩开关(管理员)
 /mc task <目标>               给 AI 布置一个任务
 /mc bind | /mc unbind         订阅/退订本会话的截屏与播报
@@ -441,7 +442,21 @@ class McPlayerPlugin(Star):
                 f"位置: {data.get('position')}\n试试 /mc shot 截个屏，或 /mc auto on 让我自己玩~"
             )
         except BridgeError as e:
-            yield event.plain_result(f"❌ 进入失败: {e}")
+            msg = str(e)
+            if "protocol" in msg.lower() or "unsupported" in msg.lower():
+                # 版本兼容问题：附带当前支持的版本范围与升级指引
+                try:
+                    vers = await self.bridge.request("versions", timeout=15)
+                    latest = ", ".join((vers.get("latest_supported") or [])[:6])
+                    msg += (
+                        f"\n💡 当前依赖支持的最新版本: {latest}"
+                        "\n解决: ① 在插件 node_bot 目录执行 npm update 升级依赖后重试"
+                        "(上游 mineflayer 支持该版本后即可进服)"
+                        " ② 或暂时改用受支持版本的服务器"
+                    )
+                except Exception:
+                    pass
+            yield event.plain_result(f"❌ 进入失败: {msg}")
         except Exception as e:
             logger.error(f"[{PLUGIN_NAME}] join 异常: {e}")
             yield event.plain_result(f"❌ 出错了: {e}")
@@ -838,6 +853,20 @@ class McPlayerPlugin(Star):
             yield event.plain_result("🔄 已重生")
         except Exception as e:
             yield event.plain_result(f"重生失败: {e}")
+
+    @mc.command("versions")
+    async def mc_versions(self, event: AstrMessageEvent):
+        """查看当前支持的游戏版本"""
+        try:
+            vers = await self.bridge.request("versions", timeout=15)
+            latest = vers.get("latest_supported") or []
+            viewer = vers.get("viewer_supported") or []
+            yield event.plain_result(
+                f"📦 可进服的最新版本: {', '.join(latest) or '未知'}\n"
+                f"🖼️ 网页截屏支持的版本: {', '.join(viewer) or '未知'}(其余版本自动用最近版本贴图或俯视地图)"
+            )
+        except Exception as e:
+            yield event.plain_result(f"查询失败: {e}")
 
     @mc.command("help")
     async def mc_help(self, event: AstrMessageEvent):

@@ -35,7 +35,7 @@ QQ/微信/TG/Discord... ──► AstrBot 插件 (Python)
 | --- | --- |
 | AstrBot | >= v4.5.7 |
 | Node.js | **>= 16**，需 `node`/`npm` 在 PATH 中（截屏渲染不依赖任何原生模块） |
-| Minecraft 服务器 | 任意可加入的服务器（离线模式或正版服务器） |
+| Minecraft 服务器 | mineflayer 支持的版本（用 `/mc versions` 查看；**26.2/26.3 等最新版上游暂未支持**，支持后 `npm update` 即可） |
 | LLM 提供商 | 使用 AI 游玩（auto/task）时需要，支持 function-calling 的模型；视觉决策需支持图片输入 |
 
 Python 无需额外依赖：截屏用的 Playwright 是 AstrBot 本体自带的。
@@ -123,6 +123,11 @@ AI 模型选择(`select_provider`)、推送会话(`umo` 多选)、额外管理�
 ## 常见问题
 
 - **提示找不到 node / npm**：安装 Node.js LTS 版本，或配置"node 可执行文件路径"。
+- **进入失败 "unsupported protocol version"**：服务器游戏版本比 mineflayer 支持的还新（如 26.3）。
+  用 `/mc versions` 查看当前支持的最新版本；在插件 `node_bot/` 目录执行 `npm update` 升级依赖后重试
+  （上游支持该版本后即可进服），或暂时改用受支持版本的服务器。
+- **npm install 报 canvas 编译失败**：本插件已锁定 `prismarine-viewer@1.28.0`（1.29+ 上游引入了
+  node-canvas 硬依赖，Windows 常编译失败）。请勿手动升级 prismarine-viewer。
 - **截屏全黑**：无 GPU 环境用 SwiftShader 软渲染，个别机器较慢，把配置里的"渲染等待时长"调大
   (如 15000ms)；或直接用 `/mc map` 俯视图。
 - **提示缺少浏览器**：在 AstrBot 环境执行 `playwright install chromium`。
