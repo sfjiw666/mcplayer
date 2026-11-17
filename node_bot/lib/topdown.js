@@ -78,11 +78,11 @@ const TRANSPARENT = new Set([
 
 /**
  * @param {import('mineflayer').Bot} bot
- * @param {{radius?: number, scale?: number}} opts
- * @returns {{png: Buffer, center: {x:number,y:number,z:number}, radius: number}}
+ * @param {{radius?: number, scale?: number, timeBudgetMs?: number}} opts
+ * @returns {{png: Buffer, center: {x:number,y:number,z:number}, radius: number, truncated?: boolean}}
  */
 function renderTopDown(bot, opts = {}) {
-  const radius = Math.max(4, Math.min(64, opts.radius ?? 24))
+  const radius = Math.max(4, Math.min(48, opts.radius ?? 16))
   const scale = Math.max(2, Math.min(16, opts.scale ?? 8))
   const size = radius * 2 + 1
   const width = size * scale
@@ -98,22 +98,37 @@ function renderTopDown(bot, opts = {}) {
   const botY = Math.floor(bot.entity.position.y)
   const botZ = Math.floor(bot.entity.position.z)
 
+  // 性能关键：全世界高度(384层)逐层扫描太慢(49x49x384 ≈ 92万次 blockAt)会超时。
+  // 只扫以机器人为中心的有限层范围：上方少许(树冠/屋檐) + 下方较多(地形起伏)。
+  const scanTop = Math.min(maxY, botY + 16)
+  const scanBottom = Math.max(minY, botY - 48)
+  // 时间预算：超时后未扫描的列按"未加载"渲染，保证总能出图
+  const deadline = Date.now() + Math.min(opts.timeBudgetMs ?? 20000, 35000)
+
+  const Vec3 = require('vec3').Vec3 || require('vec3')
+
   // 先扫一遍拿到高度范围，用于亮度归一化
   const heightMap = new Int16Array(size * size).fill(-32000)
   const colorMap = new Array(size * size).fill(null)
   let hMin = 32000
   let hMax = -32000
+  let truncated = false
 
+  scanLoop:
   for (let dz = -radius; dz <= radius; dz++) {
     for (let dx = -radius; dx <= radius; dx++) {
+      if ((dx + radius) % 16 === 0 && Date.now() > deadline) {
+        truncated = true
+        break scanLoop
+      }
       const x = botX + dx
       const z = botZ + dz
       let top = null
-      let topY = minY - 1
-      for (let y = maxY; y >= minY; y--) {
+      let topY = scanBottom - 1
+      for (let y = scanTop; y >= scanBottom; y--) {
         let block = null
         try {
-          block = bot.blockAt(new (require('vec3').Vec3)(x, y, z))
+          block = bot.blockAt(new Vec3(x, y, z))
         } catch (e) {
           block = null
         }
@@ -189,6 +204,7 @@ function renderTopDown(bot, opts = {}) {
     png,
     center: { x: botX, y: botY, z: botZ },
     radius,
+    truncated,
   }
 }
 

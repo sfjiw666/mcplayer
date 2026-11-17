@@ -1,4 +1,7 @@
-# 本插件无需额外 Python 依赖：
-# - 截屏使用 Playwright（AstrBot 本体已内置，用于文转图）
+# 本插件 Python 端零硬依赖：
+# - 截屏优先使用 playwright（若 AstrBot 环境已带则直接可用）
+# - 未安装 playwright 时自动改用系统 Chrome/Edge 的 headless 命令行截图，无需任何 Python 库
 # - Minecraft 客户端能力由 Node.js 端 (mineflayer) 提供，依赖在首次启动时自动 npm install
-# 如果 /mc shot 提示缺少浏览器，请在 AstrBot 环境执行：playwright install chromium
+#
+# 可选：想在无 Chrome/Edge 的服务器上获得更稳的截屏，可手动安装：
+#   pip install playwright && playwright install chromium

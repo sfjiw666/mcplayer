@@ -93,7 +93,7 @@ Python 无需额外依赖：截屏用的 Playwright 是 AstrBot 本体自带的�
 2. **随指令发送**：`/mc shot` 直接在当前会话返回截图。
 3. **AI 游玩播报**：`/mc auto on` 后每轮行动附带截屏 + 中文解说。
 
-截屏方案自动降级：网页渲染(真实游戏画面) → 俯视地图(纯数据绘制，任何环境都能出图)。
+截屏方案自动降级：Playwright 网页渲染 → 系统 Chrome/Edge headless 截图 → 俯视地图(纯数据绘制，任何环境都能出图)。
 
 ## AI 游玩模式说明
 
@@ -130,7 +130,8 @@ AI 模型选择(`select_provider`)、推送会话(`umo` 多选)、额外管理�
   node-canvas 硬依赖，Windows 常编译失败）。请勿手动升级 prismarine-viewer。
 - **截屏全黑**：无 GPU 环境用 SwiftShader 软渲染，个别机器较慢，把配置里的"渲染等待时长"调大
   (如 15000ms)；或直接用 `/mc map` 俯视图。
-- **提示缺少浏览器**：在 AstrBot 环境执行 `playwright install chromium`。
+- **提示缺少浏览器 / 未找到 playwright**：截屏会自动降级为系统 Chrome/Edge 的 headless 截图；
+  若都没有，在 AstrBot 环境执行 `pip install playwright && playwright install chromium`。
 - **进服超时**：检查地址端口；正版服务器需把登录方式改为 microsoft 并能访问微软服务。
 - **AI 动作失败**：多数是地形/距离/材料问题，LLM 会读到失败原因并在下一轮调整；也可手动
   `/mc goto` 靠近后再试。

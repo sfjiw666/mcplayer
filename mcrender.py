@@ -1,7 +1,9 @@
 # AstrBot Minecraft 玩家插件 - 游戏画面截屏
 #
-# 方案：Node 端启动 prismarine-viewer 网页渲染器（本机端口），
-#       本模块用 Playwright(AstrBot 自带) 打开该页面，等待 WebGL 渲染完成后对画布截图。
+# 方案(按优先级自动降级)：
+#   1. Playwright(AstrBot 环境若带) 打开渲染页截图
+#   2. 系统 Chrome/Edge 的 headless CLI 截图(不依赖任何 Python 库)
+#   3. Node 端俯视地图(main.py 兜底调用)
 # 说明：不使用 prismarine-viewer 的 headless 模式，因为其依赖 node-canvas-webgl
 #       原生编译，在 Windows/常见服务器上极易失败；浏览器渲染成功率高得多。
 
@@ -10,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
+import shutil
+import tempfile
 import time
 
 from astrbot.api import logger
@@ -75,7 +79,17 @@ class GameScreenCaptor:
         self._playwright = None
 
     async def screenshot_viewer(self, viewer_url: str, out_path: str) -> str:
-        """打开渲染页面并截屏保存到 out_path，返回 out_path。"""
+        """打开渲染页面并截屏保存到 out_path，返回 out_path。
+
+        优先 Playwright；库缺失或浏览器不可用时自动降级为系统浏览器 CLI 截图。
+        """
+        try:
+            return await self._screenshot_playwright(viewer_url, out_path)
+        except RenderError as e:
+            logger.warning(f"[mcrender] Playwright 截屏不可用，尝试系统浏览器兜底: {e}")
+        return await self._screenshot_cli(viewer_url, out_path)
+
+    async def _screenshot_playwright(self, viewer_url: str, out_path: str) -> str:
         await self._ensure_browser()
 
         last_err: Exception | None = None
@@ -118,6 +132,77 @@ class GameScreenCaptor:
                     except Exception:
                         pass
         raise RenderError(f"截屏失败: {last_err}")
+
+    # ---------- 系统浏览器 CLI 兜底 ----------
+
+    @staticmethod
+    def _find_browser_exe() -> str | None:
+        """找系统里的 Chromium 系浏览器。"""
+        # PATH 里找
+        for name in ("chrome", "msedge", "chromium", "chromium-browser", "google-chrome"):
+            p = shutil.which(name)
+            if p:
+                return p
+        # Windows 常见安装路径（Server/桌面版 Edge 基本必装）
+        win_paths = [
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        ]
+        for p in win_paths:
+            if p and os.path.isfile(p):
+                return p
+        return None
+
+    async def _screenshot_cli(self, viewer_url: str, out_path: str) -> str:
+        """用系统浏览器的 headless CLI 截图，不依赖 playwright。"""
+        exe = self._find_browser_exe()
+        if not exe:
+            raise RenderError(
+                "未找到 playwright 库，也没有找到系统 Chrome/Edge 浏览器可用于截屏。"
+                "解决: 在 AstrBot 环境执行 pip install playwright && playwright install chromium，"
+                "或安装 Chrome/Edge 浏览器。"
+            )
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        user_data_dir = tempfile.mkdtemp(prefix="mc_shot_")
+        budget = max(3000, self.render_wait_ms + 2000)
+        args = [
+            exe,
+            "--headless=new",
+            f"--screenshot={out_path}",
+            f"--window-size={self.width},{self.height}",
+            f"--virtual-time-budget={budget}",
+            "--hide-scrollbars",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-gpu",
+            "--use-angle=swiftshader",
+            "--enable-unsafe-swiftshader",
+            f"--user-data-dir={user_data_dir}",
+            viewer_url,
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, err = await asyncio.wait_for(proc.communicate(), timeout=budget / 1000 + 30)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise RenderError("系统浏览器截图超时")
+            if not os.path.isfile(out_path) or os.path.getsize(out_path) < 1024:
+                tail = (err or b"")[-300:].decode("utf-8", errors="replace")
+                raise RenderError(f"系统浏览器未产出截图(tail: {tail})")
+            return out_path
+        finally:
+            try:
+                shutil.rmtree(user_data_dir, ignore_errors=True)
+            except Exception:
+                pass
 
 
 def image_to_data_uri(path: str) -> str:

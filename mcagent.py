@@ -262,7 +262,7 @@ class GameAgent:
 
         # 截屏（给视觉模型 + 播报）
         image_uri = None
-        shot_path = await self.plugin.take_game_screenshot(push=False)
+        shot_path, _shot_err = await self.plugin.take_game_screenshot(push=False)
         if shot_path:
             from mcrender import image_to_data_uri
 
@@ -556,9 +556,9 @@ class McScreenshotTool(FunctionTool[AstrAgentContext]):
         if not plugin:
             return "机器人未启动 Minecraft 模块"
         try:
-            path = await plugin.take_game_screenshot(push=False)
+            path, err = await plugin.take_game_screenshot(push=False)
             if not path:
-                return "截屏失败"
+                return f"截屏失败: {err}"
             # 尝试发送到触发本工具的会话
             event = getattr(getattr(context, "context", None), "event", None)
             if event is not None:

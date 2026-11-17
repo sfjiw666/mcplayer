@@ -238,14 +238,20 @@ class McPlayerPlugin(Star):
 
     # ================= 游戏截屏 =================
 
-    async def take_game_screenshot(self, push: bool = False, caption: str = "") -> str | None:
-        """截取游戏画面。优先网页渲染，失败退回俯视地图。返回文件路径或 None。"""
+    async def take_game_screenshot(
+        self, push: bool = False, caption: str = ""
+    ) -> tuple[str | None, str | None]:
+        """截取游戏画面。优先网页渲染，失败退回俯视地图。
+
+        返回 (文件路径或 None, 失败原因或 None)。
+        """
         if not self.bridge_online():
-            return None
+            return None, "机器人未连接服务器"
         path = make_screenshot_path(self.data_dir)
         node_cfg = self._cfg("node")
         cam_cfg = self._cfg("camera")
         done = False
+        last_err: str | None = None
 
         if node_cfg.get("viewer_enabled", True):
             port = node_cfg.get("viewer_port") or 3000
@@ -254,25 +260,29 @@ class McPlayerPlugin(Star):
                 await self.captor.screenshot_viewer(url, path)
                 done = True
             except RenderError as e:
+                last_err = f"网页渲染失败: {e}"
                 logger.warning(f"[{PLUGIN_NAME}] 网页渲染截屏失败: {e}")
             except Exception as e:
+                last_err = f"网页渲染异常: {e}"
                 logger.warning(f"[{PLUGIN_NAME}] 截屏异常: {e}")
 
         if not done and cam_cfg.get("fallback_topdown", True):
             try:
                 data = await self.bridge.request(
                     "map",
-                    {"radius": 24, "scale": 8},
-                    timeout=45,
+                    {"radius": 16, "scale": 8},
+                    timeout=60,
                 )
                 with open(path, "wb") as f:
                     f.write(base64.b64decode(data["png_base64"]))
                 done = True
+                last_err = None
             except Exception as e:
+                last_err = last_err or f"俯视地图生成失败: {e}"
                 logger.warning(f"[{PLUGIN_NAME}] 俯视地图生成失败: {e}")
 
         if not done:
-            return None
+            return None, last_err or "截屏失败(未知原因)"
 
         try:
             cleanup_screenshots(self.data_dir, keep=int(self._cfg("notify").get("max_screenshots_kept") or 30))
@@ -281,7 +291,7 @@ class McPlayerPlugin(Star):
 
         if push:
             await self.push_image(path, caption or "📸 游戏截图")
-        return path
+        return path, None
 
     # ================= 桥接事件处理 =================
 
@@ -337,6 +347,7 @@ class McPlayerPlugin(Star):
         await self.push_text("💀 我死了... (位置: " + str((await self._safe_status_pos())) + ")")
         await asyncio.sleep(1.5)
         await self.take_game_screenshot(push=True, caption="💀 死亡现场...")
+        # 忽略返回值：死亡截屏失败不影响后续重生流程
         # 自动重生
         await asyncio.sleep(2)
         try:
@@ -556,9 +567,9 @@ class McPlayerPlugin(Star):
         """对游戏画面截屏并发送"""
         self.last_session_umo = event.unified_msg_origin
         yield event.plain_result("📸 正在截屏...")
-        path = await self.take_game_screenshot()
+        path, err = await self.take_game_screenshot()
         if not path:
-            yield event.plain_result("❌ 截屏失败：请确认已进服(/mc status)，且配置了渲染器或允许俯视地图兜底")
+            yield event.plain_result(f"❌ 截屏失败: {err}\n💡 可尝试 /mc map 俯视图，或查看插件日志排查渲染器问题")
             return
         import astrbot.api.message_components as Comp
 
@@ -577,7 +588,7 @@ class McPlayerPlugin(Star):
             return
         yield event.plain_result("🗺️ 正在绘制俯视图...")
         try:
-            data = await self.bridge.request("map", {"radius": 24, "scale": 8}, timeout=45)
+            data = await self.bridge.request("map", {"radius": 16, "scale": 8}, timeout=60)
             path = make_screenshot_path(self.data_dir)
             with open(path, "wb") as f:
                 f.write(base64.b64decode(data["png_base64"]))
@@ -880,9 +891,9 @@ class McPlayerPlugin(Star):
         if not self.bridge_online():
             yield event.plain_result("未连接服务器")
             return
-        path = await self.take_game_screenshot()
+        path, err = await self.take_game_screenshot()
         if not path:
-            yield event.plain_result("截屏失败")
+            yield event.plain_result(f"截屏失败: {err}")
             return
         import astrbot.api.message_components as Comp
 
