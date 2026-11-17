@@ -877,7 +877,7 @@ async function doJump(args) {
 async function doMap(args) {
   if (!isOnline()) throw new Error('机器人未连接服务器')
   const { renderTopDown } = require('./lib/topdown')
-  const result = renderTopDown(bot, {
+  const result = await renderTopDown(bot, {
     radius: args.radius ?? 16,
     scale: args.scale ?? 8,
     timeBudgetMs: args.time_budget_ms ?? 25000,
