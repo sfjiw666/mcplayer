@@ -169,7 +169,13 @@ async function doConnect(args) {
     const onError = (err) => {
       cleanup()
       releaseLock()
-      reject(new Error(String(err && err.message ? err.message : err)))
+      let msg = String(err && err.message ? err.message : err)
+      if (/unsupported protocol/i.test(msg)) {
+        const latest = latestPlayableVersions(1)[0] || '未知'
+        msg += `。服务器版本过新: 当前 Node 依赖最高支持 ${latest}。` +
+          `可在插件 node_bot 目录执行 npm update 升级依赖后重试(上游支持后即可进服)，或改用受支持版本的服务器`
+      }
+      reject(new Error(msg))
     }
     const onEnd = () => {
       cleanup()
@@ -847,6 +853,17 @@ async function doCommand(args) {
   return { sent: true }
 }
 
+// 上游实际可用的正式版本（过滤快照/rc），供诊断版本兼容问题
+function latestPlayableVersions(count = 8) {
+  try {
+    const mcData = require('minecraft-data')
+    const list = (mcData.supportedVersions?.pc || []).filter((v) => !/[a-zA-Z]/.test(v))
+    return list.slice(-count).reverse()
+  } catch (e) {
+    return []
+  }
+}
+
 // ================= 命令分发 =================
 
 const HANDLERS = {
@@ -856,6 +873,16 @@ const HANDLERS = {
     username: bot?.username ?? null,
     viewer: viewerStarted,
     busy: busyAction,
+  }),
+  versions: async () => ({
+    latest_supported: latestPlayableVersions(8),
+    viewer_supported: (() => {
+      try {
+        return require('prismarine-viewer').supportedVersions.slice(-6)
+      } catch (e) {
+        return []
+      }
+    })(),
   }),
   connect: doConnect,
   disconnect: doDisconnect,
